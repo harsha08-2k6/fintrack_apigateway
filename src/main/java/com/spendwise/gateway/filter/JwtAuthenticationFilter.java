@@ -32,10 +32,10 @@ import java.util.List;
  * Reactive Spring Cloud Gateway Global Authentication Filter.
  *
  * Responsibilities:
- * 1. Sanitizes incoming requests by stripping any client-supplied 'X-User-Id' header to eliminate identity spoofing.
+ * 1. Sanitizes incoming requests by stripping client-supplied 'X-User-Id' and 'X-Internal-Gateway-Key' headers.
  * 2. Permits public routes (health check, actuator, auth-service endpoints) and CORS OPTIONS preflights.
  * 3. Enforces cryptographic HMAC-SHA256 signature verification and expiration checks on protected business routes.
- * 4. Extracts the verified 'userId' from the JWT and injects a trusted 'X-User-Id' downstream.
+ * 4. Extracts the verified 'userId' from the JWT and injects a trusted 'X-User-Id' downstream along with 'X-Internal-Gateway-Key'.
  */
 @Component
 public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
@@ -44,6 +44,9 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     @Value("${jwt.secret:${JWT_SECRET:}}")
     private String secretKey;
+
+    @Value("${fintrack.internal.gateway-key:${INTERNAL_GATEWAY_KEY:}}")
+    private String internalGatewayKey;
 
     private static final List<String> PUBLIC_PATH_PREFIXES = List.of(
             "/api/auth/",
@@ -63,9 +66,15 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
         // 2. Allow root status and public endpoints
         if ("/".equals(path) || isPublicPath(path)) {
-            // Strip any forged X-User-Id header before passing request downstream
+            // Strip any forged X-User-Id or X-Internal-Gateway-Key headers before passing request downstream
             ServerHttpRequest sanitized = request.mutate()
-                    .headers(h -> h.remove("X-User-Id"))
+                    .headers(h -> {
+                        h.remove("X-User-Id");
+                        h.remove("X-Internal-Gateway-Key");
+                        if (internalGatewayKey != null && !internalGatewayKey.isBlank()) {
+                            h.set("X-Internal-Gateway-Key", internalGatewayKey.trim());
+                        }
+                    })
                     .build();
             return chain.filter(exchange.mutate().request(sanitized).build());
         }
@@ -112,13 +121,17 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             String username = claims.getSubject() != null ? claims.getSubject() : "";
             String role = claims.get("role") != null ? String.valueOf(claims.get("role")) : "ROLE_USER";
 
-            // 5. Strip any incoming forged X-User-Id and inject verified identity from JWT
+            // 5. Strip any incoming forged headers and inject verified identity and internal gateway key
             ServerHttpRequest mutatedRequest = request.mutate()
                     .headers(h -> {
                         h.remove("X-User-Id");
+                        h.remove("X-Internal-Gateway-Key");
                         h.set("X-User-Id", verifiedUserId);
                         h.set("X-Auth-Username", username);
                         h.set("X-Auth-Role", role);
+                        if (internalGatewayKey != null && !internalGatewayKey.isBlank()) {
+                            h.set("X-Internal-Gateway-Key", internalGatewayKey.trim());
+                        }
                     })
                     .build();
 
@@ -145,9 +158,13 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     private Key getSigningKey() {
         if (secretKey == null || secretKey.isBlank()) {
-            secretKey = "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970";
+            return null;
         }
         byte[] keyBytes = Decoders.BASE64.decode(secretKey.trim());
+        if (keyBytes.length < 32) {
+            log.error("Gateway security error: JWT secret key has insufficient length (<256 bits).");
+            return null;
+        }
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
@@ -170,8 +187,6 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        // High precedence to intercept before routing filters
         return -100;
     }
 }
-
