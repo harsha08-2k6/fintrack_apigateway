@@ -42,7 +42,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
-    @Value("${jwt.secret:${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}}")
+    @Value("${jwt.secret:${JWT_SECRET}}")
     private String secretKey;
 
     @Value("${fintrack.internal.gateway-key:${INTERNAL_GATEWAY_KEY:}}")
