@@ -55,6 +55,7 @@ class JwtAuthenticationFilterTest {
     void testPublicPathStripsHeadersAndAllows() {
         MockServerHttpRequest request = MockServerHttpRequest.get("/api/auth/login")
                 .header("X-User-Id", "999")
+                .header("X-Authenticated-User-Id", "999")
                 .build();
         MockServerWebExchange exchange = MockServerWebExchange.from(request);
 
@@ -68,6 +69,7 @@ class JwtAuthenticationFilterTest {
 
         assertNotNull(passedExchange.get());
         assertNull(passedExchange.get().getRequest().getHeaders().getFirst("X-User-Id"));
+        assertNull(passedExchange.get().getRequest().getHeaders().getFirst("X-Authenticated-User-Id"));
         assertEquals(INTERNAL_KEY, passedExchange.get().getRequest().getHeaders().getFirst("X-Internal-Gateway-Key"));
     }
 
@@ -142,6 +144,7 @@ class JwtAuthenticationFilterTest {
         MockServerHttpRequest request = MockServerHttpRequest.get("/api/transactions")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken)
                 .header("X-User-Id", "999") // Attacker attempting to spoof user 999
+                .header("X-Authenticated-User-Id", "999")
                 .header("X-Internal-Gateway-Key", "forged-internal-key")
                 .build();
         MockServerWebExchange exchange = MockServerWebExchange.from(request);
@@ -156,8 +159,8 @@ class JwtAuthenticationFilterTest {
 
         assertNotNull(passedExchange.get());
         assertEquals("42", passedExchange.get().getRequest().getHeaders().getFirst("X-User-Id"));
+        assertEquals("42", passedExchange.get().getRequest().getHeaders().getFirst("X-Authenticated-User-Id"));
         assertEquals("verifieduser", passedExchange.get().getRequest().getHeaders().getFirst("X-Auth-Username"));
         assertEquals(INTERNAL_KEY, passedExchange.get().getRequest().getHeaders().getFirst("X-Internal-Gateway-Key"));
     }
 }
-

@@ -32,10 +32,10 @@ import java.util.List;
  * Reactive Spring Cloud Gateway Global Authentication Filter.
  *
  * Responsibilities:
- * 1. Sanitizes incoming requests by stripping client-supplied 'X-User-Id' and 'X-Internal-Gateway-Key' headers.
+ * 1. Sanitizes incoming requests by stripping client-supplied identity and gateway-key headers.
  * 2. Permits public routes (health check, actuator, auth-service endpoints) and CORS OPTIONS preflights.
  * 3. Enforces cryptographic HMAC-SHA256 signature verification and expiration checks on protected business routes.
- * 4. Extracts the verified 'userId' from the JWT and injects a trusted 'X-User-Id' downstream along with 'X-Internal-Gateway-Key'.
+ * 4. Extracts the verified 'userId' from the JWT and injects trusted downstream identity headers.
  */
 @Component
 public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
@@ -66,10 +66,11 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
         // 2. Allow root status and public endpoints
         if ("/".equals(path) || isPublicPath(path)) {
-            // Strip any forged X-User-Id or X-Internal-Gateway-Key headers before passing request downstream
+            // Strip forged identity and gateway-key headers before passing a public request downstream
             ServerHttpRequest sanitized = request.mutate()
                     .headers(h -> {
                         h.remove("X-User-Id");
+                        h.remove("X-Authenticated-User-Id");
                         h.remove("X-Internal-Gateway-Key");
                         if (internalGatewayKey != null && !internalGatewayKey.isBlank()) {
                             h.set("X-Internal-Gateway-Key", internalGatewayKey.trim());
@@ -125,8 +126,10 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             ServerHttpRequest mutatedRequest = request.mutate()
                     .headers(h -> {
                         h.remove("X-User-Id");
+                        h.remove("X-Authenticated-User-Id");
                         h.remove("X-Internal-Gateway-Key");
                         h.set("X-User-Id", verifiedUserId);
+                        h.set("X-Authenticated-User-Id", verifiedUserId);
                         h.set("X-Auth-Username", username);
                         h.set("X-Auth-Role", role);
                         if (internalGatewayKey != null && !internalGatewayKey.isBlank()) {
